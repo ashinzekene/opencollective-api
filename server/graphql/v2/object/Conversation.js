@@ -6,6 +6,7 @@ import { Account } from '../interface/Account';
 import { CommentCollection } from '../collection/CommentCollection';
 import { Comment } from './Comment';
 import { getIdEncodeResolver, IDENTIFIER_TYPES } from '../identifiers';
+import { AccountCollection } from '../collection/AccountCollection';
 
 const Conversation = new GraphQLObjectType({
   name: 'Conversation',
@@ -30,13 +31,13 @@ const Conversation = new GraphQLObjectType({
       collective: {
         type: Account,
         resolve(conversation, args, req) {
-          return req.loaders.collective.findById.load(conversation.CollectiveId);
+          return req.loaders.Collective.byId.load(conversation.CollectiveId);
         },
       },
       fromCollective: {
         type: Account,
         resolve(conversation, args, req) {
-          return req.loaders.collective.findById.load(conversation.FromCollectiveId);
+          return req.loaders.Collective.byId.load(conversation.FromCollectiveId);
         },
       },
       body: {
@@ -48,7 +49,7 @@ const Conversation = new GraphQLObjectType({
       },
       comments: {
         type: CommentCollection,
-        description: '',
+        description: "List the comments for this conversation. Not backed by a loader, don't use this in lists.",
         args: {
           limit: { type: GraphQLInt },
           offset: { type: GraphQLInt },
@@ -63,6 +64,43 @@ const Conversation = new GraphQLObjectType({
 
           const result = await models.Comment.findAndCountAll(query);
           return { nodes: result.rows, totalCount: result.count, limit, offset };
+        },
+      },
+      followers: {
+        type: AccountCollection,
+        args: {
+          limit: { type: GraphQLInt, defaultValue: 10 },
+          offset: { type: GraphQLInt, defaultValue: 0 },
+        },
+        async resolve(conversation, { offset, limit }, req) {
+          const followers = await req.loaders.Conversation.followers.load(conversation.id);
+          return {
+            nodes: followers.slice(offset, offset + limit),
+            totalCount: followers.length,
+            offset,
+            limit,
+          };
+        },
+      },
+      stats: {
+        type: new GraphQLObjectType({
+          name: 'ConversationStats',
+          fields: {
+            id: {
+              type: new GraphQLNonNull(GraphQLString),
+              resolve: getIdEncodeResolver(IDENTIFIER_TYPES.CONVERSATION),
+            },
+            commentsCount: {
+              type: GraphQLInt,
+              description: 'Total number of comments for this conversation',
+              resolve(conversation, _, req) {
+                return req.loaders.Conversation.commentsCount.load(conversation.id);
+              },
+            },
+          },
+        }),
+        resolve(conversation) {
+          return conversation;
         },
       },
     };

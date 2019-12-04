@@ -1,4 +1,6 @@
+import { partition, uniqBy, map, differenceWith } from 'lodash';
 import { stripHTML, generateSummaryForHTML } from '../lib/sanitize-html';
+import models from '.';
 
 export default function(Sequelize, DataTypes) {
   const Conversation = Sequelize.define(
@@ -112,6 +114,8 @@ export default function(Sequelize, DataTypes) {
     { paranoid: true },
   );
 
+  // ---- Static methods ----
+
   Conversation.getMostPopularTagsForCollective = async function(collectiveId, limit = 100) {
     return Sequelize.query(
       `
@@ -128,6 +132,35 @@ export default function(Sequelize, DataTypes) {
       },
     );
   };
+
+  // ---- Instance methods ----
+
+  /**
+   * Get a list of users who should be notified for conversation updates:
+   * - Collective admins who haven't unsubscribed from the conversation
+   * - Conversation followers
+   */
+  Conversation.prototype.getUsersFollowing = async function() {
+    const collective = await models.Collective.findByPk(this.CollectiveId);
+    const [admins, followers] = await Promise.all([
+      collective.getAdminUsers(),
+      models.ConversationFollower.findAll({
+        include: ['user'],
+        where: { ConversationId: this.id },
+      }),
+    ]);
+
+    // Add followers and remove users who have explicitely unsubscribed, including admins
+    const [subscribed, unsubscribed] = partition(followers, 'isActive');
+    const subscribedUsers = map(subscribed, 'user');
+    const filteredAdmins = differenceWith(admins, unsubscribed, (user, follower) => {
+      return user.id === follower.user.id;
+    });
+
+    return uniqBy([...filteredAdmins, ...subscribedUsers], 'id');
+  };
+
+  // ---- Prepare model ----
 
   Conversation.associate = m => {
     Conversation.belongsTo(m.Collective, {

@@ -1,7 +1,7 @@
 import axios from 'axios';
 import config from 'config';
 import Promise from 'bluebird';
-import { get } from 'lodash';
+import { get, remove } from 'lodash';
 
 import activitiesLib from '../lib/activities';
 import slackLib from './slack';
@@ -173,6 +173,18 @@ export async function notifyAdminsOfCollective(CollectiveId, activity, options =
   return notifySubscribers(adminUsers, activity, options);
 }
 
+/**
+ * Notify all the followers of the conversation.
+ */
+export async function notififyConversationFollowers(conversation, activity, options = {}) {
+  const toNotify = await conversation.getUsersFollowing();
+  if (options.exclude) {
+    remove(toNotify, user => options.exclude.indexOf(user.id) !== -1);
+  }
+
+  return notifySubscribers(toNotify, activity, options);
+}
+
 async function notifyMembersOfCollective(CollectiveId, activity, options) {
   debug('notify members of CollectiveId', CollectiveId);
   const collective = await models.Collective.findByPk(CollectiveId);
@@ -239,8 +251,10 @@ async function notifyByEmail(activity) {
         activity.data.UserId = get(activity.data.conversation, 'CreatedByUserId');
       }
 
-      // if the author of the comment is the one who submitted the expense
-      if (activity.UserId === activity.data.UserId) {
+      if (activity.data.conversation) {
+        notififyConversationFollowers(activity.data.conversation, activity, { excluse: [activity.UserId] });
+      } else if (activity.UserId === activity.data.UserId) {
+        // if the author of the comment is the one who submitted the expense
         const HostCollectiveId = await activity.data.collective.getHostCollectiveId();
         // then, if the expense was already approved, we notify the admins of the host
         if (get(activity, 'data.expense.status') === 'APPROVED') {

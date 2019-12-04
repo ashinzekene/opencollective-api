@@ -31,7 +31,7 @@ export const createConversation = async (remoteUser, params: ICreateConversation
   }
 
   // Use a transaction to make sure conversation is not created if comment creation fails
-  return sequelize.transaction(async t => {
+  const conversation = await sequelize.transaction(async t => {
     // Create conversation
     const conversation = await models.Conversation.create(
       {
@@ -59,6 +59,9 @@ export const createConversation = async (remoteUser, params: ICreateConversation
 
     return conversation.update({ RootCommentId: comment.id }, { transaction: t });
   });
+
+  await models.ConversationFollower.follow(remoteUser.id, conversation.id);
+  return conversation;
 };
 
 interface IEditConversationParams {
